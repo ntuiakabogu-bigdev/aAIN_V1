@@ -1,4 +1,4 @@
-#aAIN V1 - African Artificial Intelligence(V1)
+aAIN V1 - African Artificial Intelligence(V1)
 
 ## Pan-African Translation Infrastructure
 
