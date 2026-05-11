@@ -1,0 +1,108 @@
+#speech to speech translation model configuration file
+
+project:
+  name: "Artificial Intelligence Network 1"
+  version: "1.0.0"
+  type: "speech-to-speech-translation"
+
+  languages:
+  input: ["english","yoruba","hausa","igbo"]
+  output: ["english","yoruba","hausa","igbo"]
+
+  translataion_pairs:
+#Translating from nigerian languages to english
+  - source: "english"
+    target: "yoruba"
+  - source: "english"
+    target: "hausa"
+  - source: "english"
+    target: "igbo"
+    #Translating from english to nigerian languages
+  - source: "yoruba"
+    target: "english"
+  - source: "hausa"
+    target: "english"
+  - source: "igbo"
+    target: "english"
+
+    paths:
+    data_raw: "./data/raw/"
+    data_processed: "./data/processed/"
+    models : "./models/"
+    logs: "./logs/"
+
+    #ASR CONFIGURATION
+    asr:
+      base_model: "facebook/mms-1b-all"
+      sample_rate: 16000
+      format: "wav"
+      languages:
+        english:
+          model_id: "facebook/mms-1b-all"
+          lang_id: "eng"
+        "yoruba":
+          model_id: "facebook/mms-1b-all"
+          lang_id: "yor"
+        "hausa": 
+          model_id: "facebook/mms-1b-all"
+          lang_id: "hau"
+        "igbo":
+          model_id: "facebook/mms-1b-all"
+          lang_id: "ibo"
+
+#Trainging configuration
+training:
+  batch_size: 8
+  num_epochs: 10
+  learning_rate: 0.0001
+  gradient_accumulation_steps: 2
+
+#Translation configuration
+translation:
+  base_model: "facebook/mms-1b-all"
+  max_length: 512
+  beam_size: 5
+
+  training:
+    batch_size: 16
+    num_epochs: 15
+    learning_rate: 0.00005
+
+
+#TTS configuration
+tts:
+  base_model: "facebook/mms-1b-all"
+  sample_rate: 60000
+  format: "wav"
+  languages:
+    english:
+      model_id: "facebook/mms-1b-all"
+      lang_id: "eng"
+    "yoruba":
+      model_id: "facebook/mms-1b-all"
+      lang_id: "yor"
+    "hausa": 
+      model_id: "facebook/mms-1b-all"
+      lang_id: "hau"
+    "igbo":
+      model_id: "facebook/mms-1b-all"
+      lang_id: "ibo"
+
+  training:
+    batch_size: 8
+    num_epochs: 20
+    learning_rate: 0.0001
+
+
+#gpu configuration
+gpu:
+  enabled: true
+  devices: "cuda"
+  mixed_precision: true
+
+deployment:
+  api_port: 8000
+  max_audio_length: 30  # in seconds
+  supported_formats: ["wav", "mp3", "ogg"]
+
+  

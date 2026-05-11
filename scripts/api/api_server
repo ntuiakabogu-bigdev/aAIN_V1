@@ -1,0 +1,282 @@
+"""
+AIN v1 - REST API (Transcription Only)
+For crowdsourced data collection
+"""
+
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+import torch
+import soundfile as sf
+import librosa
+import numpy as np
+from transformers import Wav2Vec2ForCTC, AutoProcessor
+import io
+import base64
+from pydantic import BaseModel
+from typing import Optional
+
+# Initialize FastAPI
+app = FastAPI(
+    title="AIN v1 - Transcription API",
+    description="Speech-to-Text API for African Languages",
+    version="1.0.0"
+)
+
+# Enable CORS (so website can access API)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # website domain
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Language codes
+SUPPORTED_LANGUAGES = {
+    "english": "eng",
+    "yoruba": "yor",
+    "hausa": "hau",
+    "igbo": "ibo"
+}
+
+# Models cache (loaded on demand)
+models_cache = {}
+
+# Request/Response models
+class TranscribeRequest(BaseModel):
+    audio: str  # Base64 encoded audio
+    language: str
+
+class TranscribeResponse(BaseModel):
+    transcription: str
+    language: str
+    success: bool
+    message: Optional[str] = None
+
+class HealthResponse(BaseModel):
+    status: str
+    supported_languages: list
+
+# Helper functions
+def load_asr_model(language: str):
+    """Load ASR model for specific language"""
+    
+    if language in models_cache:
+        return models_cache[language]
+    
+    try:
+        lang_code = SUPPORTED_LANGUAGES[language]
+        
+        print(f"Loading ASR model for {language}...")
+        
+        model = Wav2Vec2ForCTC.from_pretrained(
+            "facebook/mms-1b-all",
+            target_lang=lang_code
+        )
+        
+        processor = AutoProcessor.from_pretrained(
+            "facebook/mms-1b-all",
+            target_lang=lang_code
+        )
+        
+        models_cache[language] = (model, processor)
+        
+        print(f" {language} model loaded")
+        
+        return model, processor
+        
+    except Exception as e:
+        print(f" Error loading {language} model: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to load {language} model"
+        )
+
+def process_audio(audio_data: bytes, language: str) -> str:
+    """Process audio and return transcription"""
+    
+    try:
+        # Load audio from bytes
+        audio_io = io.BytesIO(audio_data)
+        speech_array, sampling_rate = sf.read(audio_io)
+        
+        # Resample if needed
+        if sampling_rate != 16000:
+            speech_array = librosa.resample(
+                y=speech_array,
+                orig_sr=sampling_rate,
+                target_sr=16000
+            )
+        
+        # Convert to mono
+        if len(speech_array.shape) > 1:
+            speech_array = np.mean(speech_array, axis=1)
+        
+        # Load model
+        model, processor = load_asr_model(language)
+        
+        # Process audio
+        inputs = processor(
+            speech_array,
+            sampling_rate=16000,
+            return_tensors="pt",
+            padding=True
+        )
+        
+        # Run ASR
+        with torch.no_grad():
+            outputs = model(**inputs)
+            logits = outputs.logits
+        
+        # Decode
+        predicted_ids = torch.argmax(logits, dim=-1)
+        transcription = processor.batch_decode(predicted_ids)[0]
+        
+        return transcription.strip()
+        
+    except Exception as e:
+        print(f"Error processing audio: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Audio processing failed: {str(e)}"
+        )
+
+# API Endpoints
+
+@app.get("/", response_model=dict)
+async def root():
+    """Root endpoint"""
+    return {
+        "message": "AIN v1 - Transcription API",
+        "version": "1.0.0",
+        "endpoints": {
+            "health": "/health",
+            "transcribe": "/transcribe (POST)",
+            "languages": "/languages"
+        }
+    }
+
+@app.get("/health", response_model=HealthResponse)
+async def health_check():
+    """Health check endpoint"""
+    return HealthResponse(
+        status="healthy",
+        supported_languages=list(SUPPORTED_LANGUAGES.keys())
+    )
+
+@app.get("/languages", response_model=dict)
+async def get_languages():
+    """Get supported languages"""
+    return {
+        "supported_languages": list(SUPPORTED_LANGUAGES.keys()),
+        "language_codes": SUPPORTED_LANGUAGES
+    }
+
+@app.post("/transcribe", response_model=TranscribeResponse)
+async def transcribe_audio(request: TranscribeRequest):
+    """
+    Transcribe audio to text (ASR only)
+    
+    Input:
+        - audio: Base64 encoded audio file
+        - language: Source language (english/yoruba/hausa/igbo)
+    
+    Output:
+        - transcription: Text transcription
+        - language: Input language
+        - success: Boolean
+    """
+    
+    try:
+        # Validate language
+        if request.language not in SUPPORTED_LANGUAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported language. Supported: {list(SUPPORTED_LANGUAGES.keys())}"
+            )
+        
+        # Decode base64 audio
+        try:
+            audio_data = base64.b64decode(request.audio)
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid base64 audio data"
+            )
+        
+        # Process audio
+        transcription = process_audio(audio_data, request.language)
+        
+        return TranscribeResponse(
+            transcription=transcription,
+            language=request.language,
+            success=True,
+            message="Transcription successful"
+        )
+        
+    except HTTPException as e:
+        raise e
+    except Exception as e:
+        print(f"Transcription error: {e}")
+        return TranscribeResponse(
+            transcription="",
+            language=request.language,
+            success=False,
+            message=f"Error: {str(e)}"
+        )
+
+@app.post("/transcribe-file")
+async def transcribe_file(
+    file: UploadFile = File(...),
+    language: str = Form(...)
+):
+    """
+    Transcribe audio file (alternative endpoint using file upload)
+    """
+    
+    try:
+        # Validate language
+        if language not in SUPPORTED_LANGUAGES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Unsupported language. Supported: {list(SUPPORTED_LANGUAGES.keys())}"
+            )
+        
+        # Read file
+        audio_data = await file.read()
+        
+        # Process
+        transcription = process_audio(audio_data, language)
+        
+        return {
+            "transcription": transcription,
+            "language": language,
+            "filename": file.filename,
+            "success": True
+        }
+        
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=str(e)
+        )
+
+# Run server
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("\n" + "="*60)
+    print("AIN v1 - Transcription API Server")
+    print("="*60)
+    print("\nStarting server...")
+    print("API will be available at: http://localhost:8000")
+    print("Documentation at: http://localhost:8000/docs")
+    print("="*60 + "\n")
+    
+    uvicorn.run(
+        app,
+        host="0.0.0.0",  # Accessible from network
+        port=8000,
+        log_level="info"
+    )
