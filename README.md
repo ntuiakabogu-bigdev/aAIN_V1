@@ -3,7 +3,7 @@ aAIN V1 - African Artificial Intelligence(V1)
 ## Pan-African Translation Infrastructure
 
 ## Overview
-Open-source Pan-African speech-to-speech translation infrastrucure currently containing English and Nigerian langauges (Yoruba, Hausa, Igbo).
+Open-source Pan-African speech-to-speech translation infrastructure currently containing English and Nigerian langauges (Yoruba, Hausa, Igbo).
 
 ## First Breakthrough
 This Infrastructure was used to fine-tune a baseline infrastructure using localized datasets. The results is a production-ready model for Nigerian and African dialects.
